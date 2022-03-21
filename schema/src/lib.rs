@@ -47,7 +47,7 @@ pub trait IntoSchema {
 /// Applicable for types that represents decimal place of fixed point
 pub trait DecimalPlacesAware {
     /// decimal places of fixed point
-    fn decimal_places() -> usize;
+    fn decimal_places() -> u64;
 }
 
 /// Metadata
@@ -85,7 +85,7 @@ pub struct ArrayMeta {
     /// Type
     pub ty: String,
     /// Length
-    pub len: usize,
+    pub len: u64,
 }
 
 /// Named fields
@@ -167,7 +167,7 @@ pub struct Compact<T>(T);
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct FixedMeta {
     base: String,
-    decimal_places: usize,
+    decimal_places: u64,
 }
 
 macro_rules! impl_schema_int {
@@ -215,7 +215,7 @@ impl<I: IntoSchema, P: DecimalPlacesAware> IntoSchema for fixnum::FixedPoint<I, 
 }
 
 impl DecimalPlacesAware for fixnum::typenum::U9 {
-    fn decimal_places() -> usize {
+    fn decimal_places() -> u64 {
         9
     }
 }
@@ -359,7 +359,7 @@ impl<T: IntoSchema, const L: usize> IntoSchema for [T; L] {
         let _ = map.entry(Self::type_name()).or_insert_with(|| {
             Metadata::Array(ArrayMeta {
                 ty: T::type_name(),
-                len: L,
+                len: L as u64,
             })
         });
         if !map.contains_key(&T::type_name()) {

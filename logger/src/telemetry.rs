@@ -136,10 +136,10 @@ impl<S: Subscriber> TelemetryLayer<S> {
     #[allow(clippy::new_ret_no_self)]
     pub fn from_capacity(
         subscriber: S,
-        channel_size: usize,
+        channel_size: u32,
     ) -> (impl Subscriber, Receiver<Telemetry>, Receiver<Telemetry>) {
-        let (sender, receiver) = mpsc::channel(channel_size);
-        let (sender_future, receiver_future) = mpsc::channel(channel_size);
+        let (sender, receiver) = mpsc::channel(channel_size as usize);
+        let (sender_future, receiver_future) = mpsc::channel(channel_size as usize);
         let telemetry = Self::from_senders(subscriber, sender, sender_future);
         (telemetry, receiver, receiver_future)
     }

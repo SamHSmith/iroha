@@ -288,7 +288,7 @@ where
 #[async_trait::async_trait]
 pub trait Actor: Send + Sized + 'static {
     /// Capacity of actor queue
-    fn mailbox_capacity(&self) -> usize {
+    fn mailbox_capacity(&self) -> u32 {
         100
     }
 
@@ -347,8 +347,8 @@ pub struct InitializedActor<A: Actor> {
 
 impl<A: Actor> InitializedActor<A> {
     /// Constructor.
-    pub fn new(actor: A, mailbox_capacity: usize) -> Self {
-        let (sender, receiver) = mpsc::channel(mailbox_capacity);
+    pub fn new(actor: A, mailbox_capacity: u32) -> Self {
+        let (sender, receiver) = mpsc::channel(mailbox_capacity as usize);
         InitializedActor {
             actor,
             address: Addr::new(sender),

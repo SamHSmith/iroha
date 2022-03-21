@@ -129,7 +129,7 @@ impl<'a, W: WorldTrait> State<'a, W> {
             validator: None,
 
             store_limits: StoreLimitsBuilder::new()
-                .memory_size(config.max_memory)
+                .memory_size(config.max_memory as usize)
                 .instances(1)
                 .memories(1)
                 .tables(1)
@@ -480,7 +480,7 @@ pub mod config {
     use serde::{Deserialize, Serialize};
 
     const DEFAULT_FUEL_LIMIT: u64 = 1_000_000;
-    const DEFAULT_MAX_MEMORY: usize = 500 * 2_usize.pow(20); // 500 MiB
+    const DEFAULT_MAX_MEMORY: u32 = 500 * 2_u32.pow(20); // 500 MiB
 
     /// [`WebAssembly Runtime`](super::Runtime) configuration.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Configurable)]
@@ -492,7 +492,7 @@ pub mod config {
         pub fuel_limit: u64,
 
         /// Maximum amount of linear memory a given smartcontract can allocate
-        pub max_memory: usize,
+        pub max_memory: u32,
     }
 
     impl Default for Configuration {
