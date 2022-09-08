@@ -165,7 +165,7 @@ struct State<'wrld> {
     /// Ensures smartcontract adheres to limits
     validator: Option<Validator>,
     store_limits: StoreLimits,
-    wsv: &'wrld mut WorldStateView,
+    wsv: &'wrld WorldStateView,
     /// Event for triggers
     triggering_event: Option<Event>,
     /// Operation to pass to a runtime permission validator
@@ -173,7 +173,7 @@ struct State<'wrld> {
 }
 
 impl<'wrld> State<'wrld> {
-    fn new(wsv: &'wrld mut WorldStateView, account_id: AccountId, config: Configuration) -> Self {
+    fn new(wsv: &'wrld WorldStateView, account_id: AccountId, config: Configuration) -> Self {
         Self {
             wsv,
             account_id,
@@ -352,16 +352,21 @@ impl<'wrld> Runtime<'wrld> {
 
         let instruction = Self::decode_from_memory(&memory, &caller, offset, len)?;
 
-        let account_id = caller.data().account_id.clone();
-        if let Some(validator) = &mut caller.data_mut().validator {
+        let State {
+            wsv,
+            account_id,
+            validator,
+            ..
+        } = caller.data_mut();
+
+        if let Some(validator) = validator {
             validator
-                .clone()
-                .validate_instruction(&account_id, &instruction, caller.data().wsv)
+                .validate_instruction(account_id, &instruction, wsv)
                 .map_err(|error| Trap::new(error.to_string()))?;
         }
 
         instruction
-            .execute(account_id, caller.data_mut().wsv)
+            .execute(account_id.clone(), wsv)
             .map_err(|error| Trap::new(error.to_string()))?;
 
         Ok(())
@@ -521,7 +526,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if execution of the smartcontract fails (check ['execute'])
     pub fn validate(
         &mut self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         account_id: &AccountId,
         bytes: impl AsRef<[u8]>,
         max_instruction_count: u64,
@@ -546,7 +551,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute_trigger(
         &mut self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         event: Event,
@@ -565,7 +570,7 @@ impl<'wrld> Runtime<'wrld> {
     #[allow(unsafe_code)]
     pub fn execute_permission_validator(
         &mut self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
         operation: permission::validator::NeedsPermissionBox,
@@ -599,7 +604,7 @@ impl<'wrld> Runtime<'wrld> {
     /// - if the execution of the smartcontract fails
     pub fn execute(
         &mut self,
-        wsv: &mut WorldStateView,
+        wsv: &WorldStateView,
         account_id: AccountId,
         bytes: impl AsRef<[u8]>,
     ) -> Result<(), Error> {
@@ -818,7 +823,7 @@ mod tests {
     #[test]
     fn execute_instruction_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let mut wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
@@ -846,7 +851,7 @@ mod tests {
         );
         let mut runtime = Runtime::new()?;
         runtime
-            .execute(&mut wsv, account_id, wat)
+            .execute(&wsv, account_id, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -855,7 +860,7 @@ mod tests {
     #[test]
     fn execute_query_exported() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let mut wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {
             let find_acc_query = FindAccountById::new(account_id.clone());
@@ -886,7 +891,7 @@ mod tests {
 
         let mut runtime = Runtime::new()?;
         runtime
-            .execute(&mut wsv, account_id, wat)
+            .execute(&wsv, account_id, wat)
             .expect("Execution failed");
 
         Ok(())
@@ -895,7 +900,7 @@ mod tests {
     #[test]
     fn instruction_limit_reached() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let mut wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
@@ -927,7 +932,7 @@ mod tests {
 
         let mut runtime = Runtime::new()?;
         let res = runtime.validate(
-            &mut wsv,
+            &wsv,
             &account_id,
             wat,
             1,
@@ -948,7 +953,7 @@ mod tests {
     #[test]
     fn instructions_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let mut wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let isi_hex = {
             let new_account_id = AccountId::from_str("mad_hatter@wonderland")?;
@@ -980,7 +985,7 @@ mod tests {
 
         let mut runtime = Runtime::new()?;
         let res = runtime.validate(
-            &mut wsv,
+            &wsv,
             &account_id,
             wat,
             1,
@@ -1001,7 +1006,7 @@ mod tests {
     #[test]
     fn queries_not_allowed() -> Result<(), Error> {
         let account_id = AccountId::from_str("alice@wonderland")?;
-        let mut wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
+        let wsv = WorldStateView::new(world_with_test_account(account_id.clone()));
 
         let query_hex = {
             let find_acc_query = FindAccountById::new(account_id.clone());
@@ -1032,7 +1037,7 @@ mod tests {
 
         let mut runtime = Runtime::new()?;
         let res = runtime.validate(
-            &mut wsv,
+            &wsv,
             &account_id,
             wat,
             1,

@@ -15,7 +15,7 @@ use color_eyre::eyre::{eyre, Result, WrapErr};
 use iroha_actor::{broker::*, prelude::*};
 use iroha_config::iroha::Configuration;
 use iroha_core::{
-    block_sync::{BlockSynchronizer, BlockSynchronizerTrait},
+    block_sync::BlockSynchronizer,
     genesis::{GenesisNetwork, GenesisNetworkTrait, RawGenesisBlock},
     handler::ThreadHandler,
     kura::Kura,
@@ -27,6 +27,7 @@ use iroha_core::{
     IrohaNetwork,
 };
 use iroha_data_model::prelude::*;
+use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
 use tokio::{
     signal,
     sync::{broadcast, Notify},
@@ -79,7 +80,8 @@ pub struct Iroha {
     pub torii: Option<Torii>,
     /// Thread handlers
     thread_handlers: Vec<ThreadHandler>,
-    sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>,
+    /// Relay that redirects messages from the network subsystem to core subsystems.
+    _sumeragi_relay: AlwaysAddr<FromNetworkBaseRelay>,
 }
 
 impl Drop for Iroha {
@@ -89,7 +91,6 @@ impl Drop for Iroha {
     }
 }
 
-use iroha_p2p::network::NetworkBaseRelayOnlinePeers;
 struct FromNetworkBaseRelay {
     sumeragi: Arc<Sumeragi>,
     broker: Broker,
@@ -121,7 +122,7 @@ impl Handler<iroha_core::NetworkMessage> for FromNetworkBaseRelay {
         use iroha_core::NetworkMessage::*;
 
         match msg {
-            SumeragiMessage(data) => {
+            SumeragiPacket(data) => {
                 self.sumeragi.incoming_message(data.into_v1());
             }
             BlockSync(data) => self.broker.issue_send(data.into_v1()).await,
@@ -246,9 +247,8 @@ impl Iroha {
             config.sumeragi.trusted_peers.peers.clone(),
         );
 
-        let kura = Kura::from_configuration(&config.kura, broker.clone())?;
-        let mut wsv_mutable =
-            WorldStateView::from_configuration(config.wsv, world, events_sender.clone());
+        let kura = Kura::from_configuration(&config.kura)?;
+        let wsv = WorldStateView::from_configuration(config.wsv, world, events_sender.clone());
 
         let query_judge = Arc::from(query_judge);
 
@@ -261,37 +261,35 @@ impl Iroha {
         // Validate every transaction in genesis block
         if let Some(ref genesis) = genesis {
             transaction_validator
-                .validate_every(genesis.iter().cloned(), &wsv_mutable)
+                .validate_every(genesis.iter().cloned(), &wsv)
                 .wrap_err("Transaction validation failed in genesis block")?;
         }
 
-        wsv_mutable.init(kura.init()?);
-
-        let wsv = wsv_mutable;
-        let latest_block_hash = wsv.latest_block_hash();
-        let latest_block_height = wsv.height();
+        wsv.init(kura.init()?);
 
         let notify_shutdown = Arc::new(Notify::new());
 
         let queue = Arc::new(Queue::from_configuration(&config.queue));
-        let telemetry_started = Self::start_telemetry(telemetry, &config).await?;
+        if Self::start_telemetry(telemetry, &config).await? {
+            iroha_logger::info!("Telemetry started")
+        } else {
+            iroha_logger::error!("Telemetry did not start")
+        }
 
         let kura_thread_handler = Kura::start(Arc::clone(&kura));
 
         let sumeragi = Arc::new(
-            Sumeragi::from_configuration(
+            // TODO: No function needs 10 parameters. It should accept one struct.
+            Sumeragi::new(
                 &config.sumeragi,
                 events_sender.clone(),
                 wsv,
                 transaction_validator,
-                telemetry_started,
-                genesis,
                 Arc::clone(&queue),
                 broker.clone(),
                 Arc::clone(&kura),
                 network_addr.clone(),
-            )
-            .wrap_err("Failed to initialize Sumeragi.")?,
+            ),
         );
 
         let sumeragi_relay = FromNetworkBaseRelay {
@@ -302,11 +300,8 @@ impl Iroha {
         .await
         .expect_running();
 
-        let sumeragi_thread_handler = Sumeragi::initialize_and_start_thread(
-            sumeragi.clone(),
-            latest_block_hash,
-            latest_block_height,
-        );
+        let sumeragi_thread_handler =
+            Sumeragi::initialize_and_start_thread(sumeragi.clone(), genesis);
 
         let block_sync = BlockSynchronizer::from_configuration(
             &config.block_sync,
@@ -340,7 +335,7 @@ impl Iroha {
             block_sync,
             torii,
             thread_handlers: vec![sumeragi_thread_handler, kura_thread_handler],
-            sumeragi_relay,
+            _sumeragi_relay: sumeragi_relay,
         })
     }
 
