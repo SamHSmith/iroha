@@ -25,17 +25,17 @@ use network_topology::{Role, Topology};
 
 use crate::{genesis::GenesisNetwork, handler::ThreadHandler};
 
-pub mod fault;
+pub mod main_loop;
 pub mod message;
 pub mod network_topology;
 pub mod view_change;
 
 use std::sync::Mutex;
 
-use fault::SumeragiStateMachineData;
+use main_loop::State;
 
 use self::{
-    fault::{NoFault, SumeragiWithFault},
+    main_loop::{NoFault, SumeragiWithFault},
     message::{Message, *},
     view_change::{Proof, ProofChain as ViewChangeProofs},
 };
@@ -97,7 +97,7 @@ impl Sumeragi {
                 gossip_period: Duration::from_millis(configuration.gossip_period_ms),
 
                 current_online_peers: Mutex::new(Vec::new()),
-                latest_block_hash_for_use_by_block_sync: Mutex::new(Hash::zeroed().typed()),
+                latest_block_hash: Mutex::new(Hash::zeroed().typed()),
                 incoming_message_sender: Mutex::new(incoming_message_sender),
                 incoming_message_receiver: Mutex::new(incoming_message_receiver),
             },
@@ -156,7 +156,7 @@ impl Sumeragi {
     pub fn latest_block_hash_for_use_by_block_sync(&self) -> HashOf<VersionedCommittedBlock> {
         *self
             .internal
-            .latest_block_hash_for_use_by_block_sync
+            .latest_block_hash
             .lock()
             .expect("Mutex on internal WSV poisoned in `latest_block_hash_for_use_by_block_sync`")
     }
@@ -249,7 +249,7 @@ impl Sumeragi {
                     .expect("This builder must have been valid. This is a programmer error.")
             };
 
-        let sumeragi_state_machine_data = SumeragiStateMachineData {
+        let sumeragi_state_machine_data = State {
             genesis_network,
             latest_block_hash,
             latest_block_height,
@@ -264,7 +264,7 @@ impl Sumeragi {
         let thread_handle = std::thread::Builder::new()
             .name("sumeragi thread".to_owned())
             .spawn(move || {
-                fault::run_sumeragi_main_loop(
+                main_loop::run(
                     &sumeragi.internal,
                     sumeragi_state_machine_data,
                     shutdown_receiver,

@@ -40,16 +40,19 @@ impl VersionedPacket {
     }
 }
 
+/// Helper structure, wrapping messages and view change proofs.
 #[version_with_scale(n = 1, versioned = "VersionedPacket")]
 #[derive(Debug, Clone, Decode, Encode, iroha_actor::Message)]
 pub struct MessagePacket {
-    /// Proof of view change. As part of this message handling, all peers which agree with view change should sign it.
+    /// Proof of view change. As part of this message handling, all
+    /// peers which agree with view change should sign it.
     pub view_change_proofs: Vec<view_change::Proof>,
     /// Actual Sumeragi message in this packet.
     pub message: Message,
 }
 
 impl MessagePacket {
+    /// Construct [`Self`]
     pub fn new(view_change_proofs: Vec<view_change::Proof>, message: Message) -> Self {
         Self {
             view_change_proofs,

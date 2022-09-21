@@ -33,7 +33,6 @@ The following is the default configuration used by Iroha.
       }
     ],
     "COMMIT_TIME_LIMIT_MS": 2000,
-    "TX_RECEIPT_TIME_LIMIT_MS": 500,
     "TRANSACTION_LIMITS": {
       "max_instruction_number": 4096,
       "max_wasm_size_bytes": 4194304
@@ -55,7 +54,7 @@ The following is the default configuration used by Iroha.
     "ACTOR_CHANNEL_CAPACITY": 100
   },
   "QUEUE": {
-    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
+    "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
     "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
     "TRANSACTION_TIME_TO_LIVE_MS": 86400000,
     "FUTURE_THRESHOLD_MS": 1000
@@ -417,7 +416,7 @@ Has type `queue::Configuration`. Can be configured via environment variable `IRO
 ```json
 {
   "FUTURE_THRESHOLD_MS": 1000,
-  "MAXIMUM_TRANSACTIONS_IN_BLOCK": 8192,
+  "MAXIMUM_TRANSACTIONS_IN_BLOCK": 512,
   "MAXIMUM_TRANSACTIONS_IN_QUEUE": 65536,
   "TRANSACTION_TIME_TO_LIVE_MS": 86400000
 }
@@ -440,7 +439,7 @@ The upper limit of the number of transactions per block.
 Has type `u32`. Can be configured via environment variable `QUEUE_MAXIMUM_TRANSACTIONS_IN_BLOCK`
 
 ```json
-8192
+512
 ```
 
 ### `queue.maximum_transactions_in_queue`
@@ -489,8 +488,7 @@ Has type `sumeragi::Configuration`. Can be configured via environment variable `
       "address": "127.0.0.1:1337",
       "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
     }
-  ],
-  "TX_RECEIPT_TIME_LIMIT_MS": 500
+  ]
 }
 ```
 
@@ -599,16 +597,6 @@ Has type `TrustedPeers`. Can be configured via environment variable `SUMERAGI_TR
     "public_key": "ed01201c61faf8fe94e253b93114240394f79a607b7fa55f9e5a41ebec74b88055768b"
   }
 ]
-```
-
-### `sumeragi.tx_receipt_time_limit_ms`
-
-The period of time a peer waits for `TxReceipt` from the leader.
-
-Has type `u64`. Can be configured via environment variable `SUMERAGI_TX_RECEIPT_TIME_LIMIT_MS`
-
-```json
-500
 ```
 
 ## `telemetry`
