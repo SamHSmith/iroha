@@ -412,16 +412,16 @@ pub fn run_sumeragi_main_loop<F>(
                 sumeragi_init_commit_genesis(sumeragi, &mut state_machine_guard, genesis_network);
             } else {
                 sumeragi_init_listen_for_genesis(
-                sumeragi,
-                &mut state_machine_guard,
-                &mut incoming_message_receiver,
-                &mut shutdown_receiver,
-            )
-            .unwrap_or_else(|err| {
-                if let EarlyReturn::Disconnected = err {
-                    panic!("Disconnected")
-                }
-            });                
+                    sumeragi,
+                    &mut state_machine_guard,
+                    &mut incoming_message_receiver,
+                    &mut shutdown_receiver,
+                )
+                .unwrap_or_else(|err| {
+                    if let EarlyReturn::Disconnected = err {
+                        panic!("Disconnected")
+                    }
+                });
             }
         }
     }
@@ -624,7 +624,6 @@ pub fn run_sumeragi_main_loop<F>(
                 &mut old_view_change_index,
                 state_machine_guard.latest_block_height,
                 &mut old_latest_block_height,
-                
                 &mut state_machine_guard.current_topology,
                 &mut voting_block_option,
                 &mut block_signature_acc,
@@ -640,34 +639,35 @@ pub fn run_sumeragi_main_loop<F>(
                 // below is the state that gets reset.
                 current_topology: &mut Topology,
                 voting_block_option: &mut Option<VotingBlock>,
-                block_signature_acc: &mut Vec<(HashOf<VersionedValidBlock>, SignatureOf<VersionedValidBlock>)>,
+                block_signature_acc: &mut Vec<(
+                    HashOf<VersionedValidBlock>,
+                    SignatureOf<VersionedValidBlock>,
+                )>,
                 has_sent_transactions: &mut bool,
                 instant_when_we_should_create_a_block: &mut Instant,
             ) where
                 F: FaultInjection,
             {
-        
-        if current_latest_block_height != *old_latest_block_height {
-            *voting_block_option = None;
-            block_signature_acc.clear();
-            *has_sent_transactions = false;
-            *instant_when_we_should_create_a_block = Instant::now() + sumeragi.block_time;
+                if current_latest_block_height != *old_latest_block_height {
+                    *voting_block_option = None;
+                    block_signature_acc.clear();
+                    *has_sent_transactions = false;
+                    *instant_when_we_should_create_a_block = Instant::now() + sumeragi.block_time;
 
-            *old_latest_block_height = current_latest_block_height;
-        }
-        if current_view_change_index != *old_view_change_index {
-            current_topology
-                .rebuild_with_new_view_change_count(current_view_change_index);
+                    *old_latest_block_height = current_latest_block_height;
+                }
+                if current_view_change_index != *old_view_change_index {
+                    current_topology.rebuild_with_new_view_change_count(current_view_change_index);
 
-            // there has been a view change, we must reset state for the next round.
+                    // there has been a view change, we must reset state for the next round.
 
-            *voting_block_option = None;
-            block_signature_acc.clear();
-            *has_sent_transactions = false;
+                    *voting_block_option = None;
+                    block_signature_acc.clear();
+                    *has_sent_transactions = false;
 
-            *old_view_change_index = current_view_change_index;
-            trace!("View change to attempt #{}", current_view_change_index);
-        }
+                    *old_view_change_index = current_view_change_index;
+                    trace!("View change to attempt #{}", current_view_change_index);
+                }
             }
         }
 
