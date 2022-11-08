@@ -484,6 +484,21 @@ fn handle_role_agnostic_messages<F>(
             Message::ViewChangeSuggested => {
                 trace!("Received view change suggestion.");
             }
+            Message::BlockCommitted(block_committed) => {
+                let block = block_committed.block;
+
+                let verified_signatures =
+                    block.verified_signatures().cloned().collect::<Vec<_>>();
+                let valid_signatures = state.current_topology.filter_signatures_by_roles(
+                    &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail, Role::ObservingPeer],
+                    &verified_signatures,
+                );
+                if valid_signatures.len() >= state.current_topology.min_votes_for_commit()
+                    && state.latest_block_hash == block.header().previous_block_hash
+                {
+                    commit_block(sumeragi, block, state);
+                }
+            }
             other => *maybe_incoming_message = Some(other),
         }
     }
@@ -716,35 +731,6 @@ pub fn run<F>(
                     .expect("Message must have been `Some` at this point");
                 match incoming_message {
                     Message::BlockCreated(_) => {}
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-
-                        // TODO: An observing peer should not validate, yet we will do so
-                        // in order to preserve old behaviour. This should be changed.
-                        // Tracking issue : https://github.com/hyperledger/iroha/issues/2635
-                        let block = block.revalidate(&sumeragi.transaction_validator, &state.wsv);
-                        for event in Vec::<Event>::from(&block) {
-                            trace!(?event);
-                            sumeragi.events_sender.send(event).unwrap_or(0);
-                        }
-
-                        let network_topology = state.current_topology.clone();
-
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = network_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        let proxy_tail_signatures = network_topology
-                            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-                        if valid_signatures.len() >= network_topology.min_votes_for_commit()
-                            && proxy_tail_signatures.len() == 1
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            commit_block(sumeragi, block, &mut state);
-                        }
-                    }
                     _ => {
                         trace!("Observing peer not handling message {:?}", incoming_message);
                     }
@@ -771,25 +757,6 @@ pub fn run<F>(
                             }
                         } else {
                             error!("Recieved transaction that did not pass transaction limits.");
-                        }
-                    }
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-                        let network_topology = state.current_topology.clone();
-
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = network_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        let proxy_tail_signatures = network_topology
-                            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-                        if valid_signatures.len() >= network_topology.min_votes_for_commit()
-                            && proxy_tail_signatures.len() == 1
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            commit_block(sumeragi, block, &mut state);
                         }
                     }
                     _ => {
@@ -969,21 +936,6 @@ pub fn run<F>(
 
                         let voting_block = VotingBlock::new(block.clone());
                         voting_block_option = Some(voting_block);
-                    }
-                    Message::BlockCommitted(block_committed) => {
-                        let block = block_committed.block;
-
-                        let verified_signatures =
-                            block.verified_signatures().cloned().collect::<Vec<_>>();
-                        let valid_signatures = state.current_topology.filter_signatures_by_roles(
-                            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                            &verified_signatures,
-                        );
-                        if valid_signatures.len() >= state.current_topology.min_votes_for_commit()
-                            && state.latest_block_hash == block.header().previous_block_hash
-                        {
-                            commit_block(sumeragi, block, &mut state);
-                        }
                     }
                     _ => {
                         trace!("Not handling message {:?}", incoming_message);
@@ -1207,7 +1159,7 @@ fn sumeragi_init_commit_genesis<F>(
         info!(
             peer_role = ?state.current_topology.role(&sumeragi.peer_id),
             block_hash = %block.hash(),
-            "Created a block to commit.",
+            "Created genesis block to commit.",
         );
         for event in Vec::<Event>::from(&block) {
             trace!(?event);
