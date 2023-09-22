@@ -309,7 +309,7 @@ pub mod parameter {
     }
 
     impl Parameter {
-        fn new(id: ParameterId, val: Value) -> Self {
+        pub fn new(id: ParameterId, val: Value) -> Self {
             Self {
                 id,
                 val: Box::new(val),

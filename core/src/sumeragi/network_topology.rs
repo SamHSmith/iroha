@@ -139,13 +139,18 @@ impl Topology {
     }
 
     /// Add or remove peers from the topology.
-    pub fn update_peer_list(&mut self, new_peers: UniqueVec<PeerId>) {
-        self.ordered_peers = new_peers
-    }
-
-    /// Rotate peers after each failed attempt to create a block.
-    pub fn rotate_all(&mut self) {
-        self.rotate_all_n(1);
+    pub fn update_peer_list(&mut self, _new_peers: UniqueVec<PeerId>) {
+        let mut new_peers: Vec<_> = _new_peers.into();
+        let mut ordered_peers: Vec<_> = self.ordered_peers.clone().into();
+        ordered_peers.retain(|p| match new_peers.iter().position(|p2| p2 == p) {
+            Some(index) => {
+                new_peers.remove(index);
+                true
+            }
+            None => false,
+        });
+        ordered_peers.append(&mut new_peers);
+        self.modify_peers_directly(|peers| *peers = ordered_peers);
     }
 
     /// Rotate peers n times where n is a number of failed attempt to create a block.
@@ -305,13 +310,6 @@ mod tests {
     }
 
     #[test]
-    fn rotate_all() {
-        let mut topology = topology();
-        topology.rotate_all();
-        assert_eq!(extract_ports(&topology), vec![1, 2, 3, 4, 5, 6, 0])
-    }
-
-    #[test]
     fn rotate_set_a() {
         let mut topology = topology();
         topology.rotate_set_a();
@@ -338,9 +336,9 @@ mod tests {
         // New peers will be 0, 2, 5, 7
         let new_peers = {
             let mut peers = unique_vec![
-                topology.ordered_peers[0].clone(),
-                topology.ordered_peers[2].clone(),
                 topology.ordered_peers[5].clone(),
+                topology.ordered_peers[2].clone(),
+                topology.ordered_peers[0].clone(),
             ];
             peers.extend(test_peers![7]);
             peers
