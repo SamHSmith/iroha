@@ -24,6 +24,8 @@ view! {
         pub private_key: PrivateKey,
         /// Disable coloring of the backtrace and error report on panic
         pub disable_panic_terminal_colors: bool,
+        /// Exit after initialization for startup time testing.
+        pub exit_after_init: bool,
         /// `Kura` configuration
         #[config(inner)]
         pub kura: kura::Configuration,
@@ -68,6 +70,7 @@ impl Default for ConfigurationProxy {
             public_key: None,
             private_key: None,
             disable_panic_terminal_colors: Some(bool::default()),
+            exit_after_init: Some(bool::default()),
             kura: Some(kura::ConfigurationProxy::default()),
             sumeragi: Some(sumeragi::ConfigurationProxy::default()),
             torii: Some(torii::ConfigurationProxy::default()),
@@ -210,6 +213,7 @@ mod tests {
         fn arb_proxy()(
             (public_key, private_key) in arb_keys(),
             disable_panic_terminal_colors in prop::option::of(Just(true)),
+            exit_after_init in prop::option::of(Just(true)),
             kura in prop::option::of(kura::tests::arb_proxy()),
             sumeragi in prop::option::of(sumeragi::tests::arb_proxy()),
             torii in prop::option::of(torii::tests::arb_proxy()),
@@ -222,7 +226,7 @@ mod tests {
             telemetry in prop::option::of(telemetry::tests::arb_proxy()),
             snapshot in prop::option::of(snapshot::tests::arb_proxy()),
             ) -> ConfigurationProxy {
-            ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, kura, sumeragi, torii, block_sync, queue,
+            ConfigurationProxy { public_key, private_key, disable_panic_terminal_colors, exit_after_init, kura, sumeragi, torii, block_sync, queue,
                                  logger, genesis, wsv, network, telemetry, snapshot }
         }
     }

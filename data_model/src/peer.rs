@@ -27,9 +27,7 @@ pub mod model {
     ///
     /// Equality is tested by `public_key` field only.
     /// Each peer should have a unique public key.
-    #[derive(
-        Debug, Display, Clone, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema,
-    )]
+    #[derive(Display, Clone, Eq, Getters, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     #[display(fmt = "{public_key}@@{address}")]
     #[getset(get = "pub")]
     #[ffi_type]
@@ -80,6 +78,12 @@ impl Peer {
     #[inline]
     pub const fn new(id: PeerId) -> <Self as Registered>::With {
         Self { id }
+    }
+}
+
+impl core::fmt::Debug for PeerId {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 

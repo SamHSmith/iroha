@@ -44,6 +44,8 @@ pub struct GenesisTransaction(pub SignedTransaction);
 pub struct GenesisNetwork {
     /// transactions from `GenesisBlock`, any transacton is accepted
     pub transactions: Vec<GenesisTransaction>,
+    /// keypair used by sumeragi to append initial chain parameters to genesis block
+    pub genesis_key_pair: KeyPair,
 }
 
 impl GenesisNetwork {
@@ -92,7 +94,10 @@ impl GenesisNetwork {
         if transactions.is_empty() {
             bail!("Genesis transaction set contains no valid transactions");
         }
-        Ok(GenesisNetwork { transactions })
+        Ok(GenesisNetwork {
+            transactions,
+            genesis_key_pair,
+        })
     }
 }
 
@@ -198,7 +203,7 @@ impl ValidatorPath {
 #[repr(transparent)]
 pub struct GenesisTransactionBuilder {
     /// Instructions
-    isi: Vec<InstructionBox>,
+    pub isi: Vec<InstructionBox>,
 }
 
 impl GenesisTransactionBuilder {

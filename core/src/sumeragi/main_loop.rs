@@ -2,11 +2,11 @@
 use std::sync::mpsc;
 
 use iroha_data_model::{
-    block::*, events::pipeline::PipelineEvent, peer::PeerId,
+    block::*, events::pipeline::PipelineEvent, parameter::ParametersBuilder, peer::PeerId,
     transaction::error::TransactionRejectionReason,
 };
+use iroha_genesis::{GenesisTransaction, GenesisTransactionBuilder};
 use iroha_p2p::UpdateTopology;
-use iroha_primitives::unique_vec::UniqueVec;
 use tracing::{span, Level};
 
 use super::{view_change::ProofBuilder, *};
@@ -241,11 +241,32 @@ impl Sumeragi {
         assert_eq!(self.wsv.height(), 0);
         assert_eq!(self.wsv.latest_block_hash(), None);
 
-        let transactions: Vec<_> = genesis_network
-            .transactions
-            .into_iter()
-            .map(AcceptedTransaction::accept_genesis)
-            .collect();
+        let transactions: Vec<_> = {
+            let mut transactions: Vec<_> = genesis_network.transactions.into_iter().collect();
+
+            // Copy sumeragi config params into chain.
+            let parameters = ParametersBuilder::new()
+                .add_parameter(BLOCK_TIME, self.block_time.as_millis())
+                .expect("should not fail")
+                .add_parameter(COMMIT_TIME_LIMIT, self.commit_time.as_millis())
+                .expect("should not fail")
+                .add_parameter(MAX_TRANSACTIONS_IN_BLOCK, self.max_txs_in_block as u32)
+                .expect("should not fail")
+                .into_set_parameters();
+
+            transactions.push(GenesisTransaction(
+                GenesisTransactionBuilder {
+                    isi: vec![InstructionBox::from(parameters)],
+                }
+                .sign(genesis_network.genesis_key_pair)
+                .expect("Must succeed"),
+            ));
+
+            transactions
+                .into_iter()
+                .map(AcceptedTransaction::accept_genesis)
+                .collect()
+        };
 
         let mut new_wsv = self.wsv.clone();
         let genesis = BlockBuilder::new(transactions, self.current_topology.clone(), vec![])
@@ -289,15 +310,6 @@ impl Sumeragi {
         self.update_state::<ReplaceTopBlockStrategy>(block, new_wsv);
     }
 
-    fn update_topology(&mut self, block_signees: &[PublicKey], peers: UniqueVec<PeerId>) {
-        let mut topology = Topology::new(peers);
-
-        topology.update_topology(block_signees, self.wsv.peers_ids().clone());
-
-        self.current_topology = topology;
-        self.connect_peers(&self.current_topology);
-    }
-
     fn update_state<Strategy: ApplyBlockStrategy>(
         &mut self,
         block: CommittedBlock,
@@ -324,14 +336,13 @@ impl Sumeragi {
         // Parameters are updated before updating public copy of sumeragi
         self.update_params();
 
-        let block_topology = block.payload().commit_topology.clone();
-        let block_signees = block
-            .signatures()
-            .into_iter()
-            .map(|s| s.public_key())
-            .cloned()
-            .collect::<Vec<PublicKey>>();
         let events = block.produce_events();
+
+        let new_topology = Topology::recreate_topology(
+            &SignedBlock::from(block.clone()),
+            0,
+            self.wsv.peers_ids().iter().cloned().collect(),
+        );
 
         // https://github.com/hyperledger/iroha/issues/3396
         // Kura should store the block only upon successful application to the internal WSV to avoid storing a corrupted block.
@@ -354,13 +365,14 @@ impl Sumeragi {
         // NOTE: This sends "Block committed" event,
         // so it should be done AFTER public facing WSV update
         self.send_events(events);
-        self.update_topology(&block_signees, block_topology);
+
+        self.current_topology = new_topology;
+        self.connect_peers(&self.current_topology);
+
         self.cache_transaction();
     }
 
     fn update_params(&mut self) {
-        use iroha_data_model::parameter::default::*;
-
         if let Some(block_time) = self.wsv.query_param(BLOCK_TIME) {
             self.block_time = Duration::from_millis(block_time);
         }
@@ -521,7 +533,12 @@ fn handle_message(
                 .is_consensus_required()
                 .expect("Peer has `ValidatingPeer` role, which mean that current topology require consensus");
 
-            if let Some(v_block) = vote_for_block(sumeragi, &current_topology, block_created) {
+            if let Some(v_block) = vote_for_block(
+                sumeragi,
+                current_view_change_index,
+                &current_topology,
+                block_created,
+            ) {
                 let block_hash = v_block.block.payload().hash();
 
                 let msg = MessagePacket::new(
@@ -540,7 +557,12 @@ fn handle_message(
                 "Peer has `ObservingPeer` role, which mean that current topology require consensus",
             );
 
-            if let Some(v_block) = vote_for_block(sumeragi, &current_topology, block_created) {
+            if let Some(v_block) = vote_for_block(
+                sumeragi,
+                current_view_change_index,
+                &current_topology,
+                block_created,
+            ) {
                 if current_view_change_index >= 1 {
                     let block_hash = v_block.block.payload().hash();
 
@@ -558,7 +580,12 @@ fn handle_message(
             }
         }
         (Message::BlockCreated(block_created), Role::ProxyTail) => {
-            if let Some(mut new_block) = vote_for_block(sumeragi, current_topology, block_created) {
+            if let Some(mut new_block) = vote_for_block(
+                sumeragi,
+                current_view_change_index,
+                current_topology,
+                block_created,
+            ) {
                 // NOTE: Up until this point it was unknown which block is expected to be received,
                 // therefore all the signatures (of any hash) were collected and will now be pruned
                 add_signatures::<false>(&mut new_block, voting_signatures.drain(..));
@@ -624,7 +651,14 @@ fn process_message_independent(
                     let event_recommendations = Vec::new();
                     let new_block = match BlockBuilder::new(
                         transactions,
-                        sumeragi.current_topology.clone(),
+                        Topology::recreate_topology(
+                            &sumeragi
+                                .wsv
+                                .latest_block_ref()
+                                .expect("WSV must have blocks"),
+                            current_view_change_index,
+                            current_topology.ordered_peers.iter().cloned().collect(),
+                        ),
                         event_recommendations,
                     )
                     .chain(current_view_change_index, &mut new_wsv)
@@ -730,6 +764,7 @@ fn reset_state(
     old_view_change_index: &mut u64,
     current_latest_block_height: u64,
     old_latest_block_height: &mut u64,
+    lastest_block: &SignedBlock,
     // below is the state that gets reset.
     current_topology: &mut Topology,
     voting_block: &mut Option<VotingBlock>,
@@ -747,17 +782,22 @@ fn reset_state(
         *old_view_change_index = 0;
     }
 
-    while *old_view_change_index < current_view_change_index {
+    if *old_view_change_index < current_view_change_index {
         error!(addr=%peer_id.address, "Rotating the entire topology.");
 
-        *old_view_change_index += 1;
-        current_topology.rotate_all();
+        *old_view_change_index = current_view_change_index;
         was_commit_or_view_change = true;
     }
 
     // Reset state for the next round.
     if was_commit_or_view_change {
         *old_latest_block_height = current_latest_block_height;
+
+        *current_topology = Topology::recreate_topology(
+            &lastest_block,
+            current_view_change_index,
+            current_topology.ordered_peers.iter().cloned().collect(),
+        );
 
         *voting_block = None;
         voting_signatures.clear();
@@ -843,13 +883,7 @@ pub(crate) fn run(
         sumeragi
             .transaction_cache
             // Checking if transactions are in the blockchain is costly
-            .retain(|tx| {
-                let expired = sumeragi.queue.is_expired(tx);
-                if expired {
-                    debug!(?tx, "Transaction expired")
-                }
-                expired
-            });
+            .retain(|tx| !sumeragi.queue.is_expired(tx));
 
         let mut expired_transactions = Vec::new();
         sumeragi.queue.get_transactions_for_block(
@@ -872,6 +906,10 @@ pub(crate) fn run(
             &mut old_view_change_index,
             sumeragi.wsv.height(),
             &mut old_latest_block_height,
+            &sumeragi
+                .wsv
+                .latest_block_ref()
+                .expect("WSV must have blocks"),
             &mut sumeragi.current_topology,
             &mut voting_block,
             &mut voting_signatures,
@@ -881,8 +919,14 @@ pub(crate) fn run(
         );
 
         let node_expects_block = !sumeragi.transaction_cache.is_empty();
-        if node_expects_block && last_view_change_time.elapsed() > view_change_time {
+        if node_expects_block && last_view_change_time.elapsed() >= view_change_time {
             let role = sumeragi.current_topology.role(&sumeragi.peer_id);
+
+            debug!(
+                "elapsed since view change: {} ms >= {} ms",
+                last_view_change_time.elapsed().as_millis(),
+                view_change_time.as_millis()
+            );
 
             if let Some(VotingBlock { block, .. }) = voting_block.as_ref() {
                 // NOTE: Suspecting the tail node because it hasn't yet committed a block produced by leader
@@ -967,6 +1011,7 @@ fn expired_event(txn: &AcceptedTransaction) -> Event {
 
 fn vote_for_block(
     sumeragi: &Sumeragi,
+    current_view_change_index: u64,
     topology: &Topology,
     BlockCreated { block }: BlockCreated,
 ) -> Option<VotingBlock> {
@@ -974,6 +1019,11 @@ fn vote_for_block(
     let addr = &sumeragi.peer_id.address;
     let role = sumeragi.current_topology.role(&sumeragi.peer_id);
     trace!(%addr, %role, block_hash=%block_hash, "Block received, voting...");
+    let block_view_change_index = block.payload().header().view_change_index;
+    if block_view_change_index != current_view_change_index {
+        warn!(%role, %current_view_change_index, %block_view_change_index, "Could not vote for block because of incorrect view change index");
+        return None;
+    }
 
     let mut new_wsv = sumeragi.wsv.clone();
     let block = match ValidBlock::validate(block, topology, &mut new_wsv) {
