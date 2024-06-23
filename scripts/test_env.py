@@ -48,7 +48,11 @@ class Network:
             "logger": {
                 "level": "INFO",
                 "format": "pretty",
-            }
+            },
+            "network": {
+                "block_gossip_period": 1000,
+                "block_gossip_max_size": 64,
+            },
         }
         with open(peers_dir / SHARED_CONFIG_FILE_NAME, "wb") as f:
             tomli_w.dump(shared_config, f)

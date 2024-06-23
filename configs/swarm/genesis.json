@@ -123,7 +123,7 @@
         }
       },
       {
-        "NewParameter": "?MaxTransactionsInBlock=512"
+        "NewParameter": "?MaxTransactionsInBlock=2"
       },
       {
         "NewParameter": "?BlockTime=2000"
